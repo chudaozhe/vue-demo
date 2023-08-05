@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <!-- import CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css">
+</head>
+<body>
+<script>
+    window.OSS_PATH = '';//上传成功后的oss链接
+</script>
+<div id="app">
+    <el-upload
+            class="upload-demo"
+            action
+            :http-request="uploadFile"
+            :on-preview="handlePreview"
+            multiple
+            :limit="1"
+            :on-exceed="handleExceed"
+            :file-list="fileList"
+            :on-success="handleAvatarSuccess"
+            :on-progress="uploadVideoProcess"
+            :before-upload="beforeUpload">
+        <el-button size="small" type="primary">点击上传</el-button>
+        <div slot="tip" class="el-upload__tip">只能上传mp4/mov文件</div>
+    </el-upload>
+
+    <!-- 进度条 -->
+    <el-progress v-if="progressFlag" :percentage="loadProgress"></el-progress>
+
+    <div id="oss_path"></div>
+</div>
+<!-- import Vue before Element -->
+<script src="https://unpkg.com/vue@2/dist/vue.js"></script>
+<!-- import JavaScript -->
+<script src="https://unpkg.com/element-ui/lib/index.js"></script>
+<script type="text/javascript" src="http://gosspublic.alicdn.com/aliyun-oss-sdk.min.js"></script>
+<script>
+    new Vue({
+        el: '#app',
+        data: function() {
+            return {
+                urllib: OSS.urllib,
+                OSS: OSS.Wrapper,
+                client: null,
+                loadProgress: 0, //动态显示进度条
+                progressFlag: true, //关闭进度条
+                fileList: [],
+                appServer : 'https://xxx.net/user/oss/sts',
+                bucket : 'cw-test',
+                region : 'oss-cn-hangzhou',
+            }
+        },
+        methods: {
+            handleRemove(file, fileList) {
+                console.log(file, fileList);
+            },
+            handlePreview(file) {
+                console.log(file);
+            },
+            handleExceed(files, fileList) {
+                this.$message.warning(`当前限制选择 1 个文件，本次选择了 ${files.length} 个文件，共选择了 ${files.length + fileList.length} 个文件`);
+            },
+            beforeRemove(file, fileList) {
+                return this.$confirm(`确定移除 ${ file.name }？`);
+            },
+            beforeUpload(file) {
+                const isVideo = (file.type === 'video/mp4' || file.type === 'video/quicktime');
+                if (!isVideo) {
+                    this.$message.error('上传的视频只能是 mp4或mov 格式!');
+                }
+                return isVideo;
+            },
+            handleAvatarSuccess(res, file) {
+                if (res.success) {
+                    console.log('upload true');
+                    console.log(res.file_path);
+                    OSS_PATH=res.file_path;
+                    console.log(OSS_PATH);
+                }
+            },
+            uploadVideoProcess(event, file, fileList) {
+                this.progressFlag = true; // 显示进度条
+                this.loadProgress = parseInt(event.percent); // 动态获取文件上传进度
+                if (this.loadProgress >= 100) {
+                    this.loadProgress = 100
+                    setTimeout(() => {
+                        this.progressFlag = false
+                    }, 1000) // 一秒后关闭进度条
+                }
+            },
+            uploadFile (file) {
+                let storeAs = this.generateFileName(file.file.name);
+                console.log(file.file.name + ' => ' + storeAs);
+                // OSS.urllib是SDK内部封装的发送请求的逻辑，开发者可以使用任何发送请求的库向sts-server发送请求。
+                let _this = this
+                this.urllib.request(_this.appServer, {method: 'GET'}, (err, response) => {
+                    if (err) {
+                        return alert(err);
+                    }
+                    try {
+                        result = JSON.parse(response);
+                        console.log(JSON.stringify(result))
+                    } catch (e) {
+                        return alert('parse sts response info error: ' + e.message);
+                    }
+                    let client = new _this.OSS({
+                        accessKeyId: result.AccessKeyId,
+                        accessKeySecret: result.AccessKeySecret,
+                        stsToken: result.SecurityToken,
+                        region: _this.region,
+                        bucket: _this.bucket,
+                    });
+                    client.multipartUpload(storeAs, file.file, {
+                        progress: function (p) {
+                            return function (done) {
+                                _this.loadProgress = Math.floor(p * 100)
+                                done();
+                            }
+                        },
+                        partSize: 102400 // 指定上传的每个分片的大小，范围为100 KB~5 GB。单个分片默认大小为1 * 1024 * 1024（即1 MB）
+                    }).then(function (result) {
+                        console.log(result);
+                        window.OSS_PATH = 'https://'+_this.bucket+'.'+_this.region+'.aliyuncs.com/'+result.name;
+                        document.getElementById('oss_path').innerHTML = window.OSS_PATH
+                    }).catch(function (err) {
+                        console.log(err);
+                    });
+                });
+            },
+            generateFileName: function(originalFileName) {
+                const currentDate = new Date();
+                const year = currentDate.getFullYear();
+                const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+                const day = String(currentDate.getDate()).padStart(2, '0');
+
+                const timestamp = Date.now();
+                const randomInt = Math.floor(Math.random() * 100000).toString().padStart(5, '0');
+
+                const fileExtension = originalFileName.split('.').pop();
+                return `${year}-${month}-${day}/${timestamp}${randomInt}.${fileExtension}`;
+            },
+        }
+    })
+</script>
+</body>
+</html>
